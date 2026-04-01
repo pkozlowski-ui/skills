@@ -205,12 +205,75 @@ parent.appendChild(child);
 child.layoutSizingHorizontal = 'FILL'; // AFTER append, nie przed
 ```
 
-### 10. Font PRZED operacją na tekście
+### 10. Font PRZED operacją na tekście — sprawdź font family z pliku
 
 ```javascript
-await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
+// NIE zakładaj 'Inter' — sprawdź faktyczny font z istniejącego węzła tekstowego
+const sample = figma.currentPage.findOne(n => n.type === 'TEXT');
+const fontFamily = sample?.fontName?.family ?? 'Inter';
+await figma.loadFontAsync({ family: fontFamily, style: 'Regular' });
+await figma.loadFontAsync({ family: fontFamily, style: 'SemiBold' });
+await figma.loadFontAsync({ family: fontFamily, style: 'Medium' });
 const text = figma.createText();
 text.characters = 'Hello'; // dopiero po loadFontAsync
+```
+
+### 11. Lokalny vs opublikowany komponent
+
+```javascript
+// OPUBLIKOWANY (w library) → importComponentByKeyAsync
+const comp = await figma.importComponentByKeyAsync('abc123key');
+
+// LOKALNY (nieopublikowany) → getNodeByIdAsync + createInstance
+// nodeId pochodzi z figma_search_components → results[].nodeId
+const comp = await figma.getNodeByIdAsync('337:15141');
+const inst = comp.createInstance();
+```
+
+> `importComponentByKeyAsync` na lokalnym komponencie rzuca `"cannot import unpublished"`. Zawsze sprawdź czy komponent jest opublikowany — jeśli nie, użyj `getNodeByIdAsync`.
+
+### 12. setProperties() — weryfikuj efekt wizualny, nie tylko wartość property
+
+```javascript
+// setProperties zmienia wartość w componentProperties, ale może NIE zmienić
+// węzła tekstowego jeśli text property jest "ghost" (niezwiązana z TextNode)
+
+inst.setProperties({ 'Label#xxx': 'Nowy tekst' });
+
+// Weryfikuj: sprawdź faktyczne węzły tekstowe
+const actualText = inst.findAll(n => n.type === 'TEXT').map(t => t.characters);
+// Jeśli actualText nie zawiera 'Nowy tekst' → property jest ghost → użyj fallback
+
+// FALLBACK: detach + direct edit (zawsze działa)
+const detached = inst.detachInstance();
+const t = detached.findOne(n => n.type === 'TEXT' && n.visible);
+await figma.loadFontAsync(t.fontName);
+t.characters = 'Nowy tekst';
+// Uwaga: detach traci link do komponentu — akceptowalne dla custom labels na konkretnym ekranie
+```
+
+### 13. layoutSizingVertical — FIXED domyślnie, HUG musi być jawne
+
+```javascript
+// Nowe frames mają layoutSizingVertical = 'FIXED' domyślnie
+// Auto-layout NIE przełącza na HUG automatycznie po dodaniu tekstu
+// HUG musi być ustawione JAWNIE i ZAWSZE PO appendChild()
+
+parent.appendChild(rowFrame);
+rowFrame.layoutSizingHorizontal = 'FILL';  // zajmij całą szerokość parenta
+rowFrame.layoutSizingVertical = 'HUG';     // skurczy się do wysokości zawartości
+// ✗ NIE ustawiaj HUG przed appendChild — nie zadziała
+```
+
+### 14. Kolejność: layoutMode → resize() → layoutSizingHorizontal
+
+```javascript
+// Ustawienie layoutMode zmienia sizing na HUG — resize() przywraca FIXED
+// Wymagana kolejność:
+frame.layoutMode = 'HORIZONTAL';          // (1) najpierw layout mode
+frame.resize(768, frame.height);          // (2) potem resize do żądanego wymiaru
+frame.layoutSizingHorizontal = 'FIXED';   // (3) na końcu zablokuj sizing
+// ✗ Odwrotna kolejność → frame wraca do HUG szerokości tekstu
 ```
 
 ---

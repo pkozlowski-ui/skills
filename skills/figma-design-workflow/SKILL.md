@@ -40,6 +40,21 @@ Każdy element UI musi przejść przez ten proces:
 
 ## Pre-flight — przed każdym nowym ekranem
 
+### Krok 0: Font family (przed JAKĄKOLWIEK operacją na tekście)
+
+Nigdy nie zakładaj "Inter". Odczytaj font z istniejącego węzła tekstowego w pliku:
+
+```javascript
+const sample = figma.currentPage.findOne(n => n.type === 'TEXT')
+  ?? figma.root.children.flatMap(p => p.findAll(n => n.type === 'TEXT'))[0];
+const fontFamily = sample?.fontName?.family ?? 'Unknown';
+// Załaduj warianty których planujesz używać:
+await figma.loadFontAsync({ family: fontFamily, style: 'Regular' });
+await figma.loadFontAsync({ family: fontFamily, style: 'Medium' });
+await figma.loadFontAsync({ family: fontFamily, style: 'SemiBold' });
+return { fontFamily }; // sprawdź przed kontynuowaniem
+```
+
 ### Krok 1: Odkryj komponenty używane w podobnych ekranach
 
 Najszybszy sposób znaleźć właściwe komponenty to przeczytać co używają istniejące strony:
@@ -116,6 +131,165 @@ return props;
 
 ---
 
+## Nazwy warstw i struktura layerów — obowiązkowe standardy
+
+### Nazewnictwo — zawsze opisowe
+
+Każdy node stworzony przez `figma_execute` musi mieć nazwę odzwierciedlającą jego rolę w hierarchii.
+
+```
+✓  frame.name = 'Slot 9:00am'
+✓  frame.name = 'Attendees Row'
+✓  frame.name = 'Action Row'
+✓  frame.name = 'Divider'
+✗  (domyślne 'Frame', 'Group', 'Rectangle' — niedopuszczalne)
+```
+
+Reguła: `node.name = 'descriptive-name'` to **obowiązkowa linia** przy każdym `figma.createFrame()`, `createText()`, `createRectangle()`.
+
+Wzorzec nazwy: `[Rola] [Kontekst]` — np. `"Time Pill"`, `"Content Area"`, `"Title Row"`, `"Join Button"`.
+
+### Auto-layout — świadoma decyzja dla każdego frame'a
+
+Każdy nowy frame wymaga jawnej decyzji o `layoutMode`:
+
+```
+VERTICAL   → dzieci układają się w kolumnie (sekcje, listy, karty, formularze)
+HORIZONTAL → dzieci układają się w wierszu (headery, action bary, wiersze tabel, pills)
+NONE       → tylko gdy absolutne pozycjonowanie jest konieczne (tabele z grid, overlay)
+             + ZAWSZE z komentarzem w kodzie: // layoutMode NONE — tabela z fixed positions
+```
+
+`layoutMode = 'NONE'` bez uzasadnienia = red flag wymagający przeglądu.
+
+**Sizing po appendChild — obowiązkowa kolejność:**
+```javascript
+parent.appendChild(child);
+// DOPIERO PO appendChild ustaw sizing:
+child.layoutSizingHorizontal = 'FILL'; // lub 'FIXED' / 'HUG'
+child.layoutSizingVertical = 'HUG';    // domyślnie jest FIXED — jawnie ustaw HUG
+```
+
+**Kolejność dla resize z auto-layoutem:**
+```javascript
+frame.layoutMode = 'HORIZONTAL';         // 1. ustaw tryb
+frame.resize(targetWidth, frame.height); // 2. resize
+frame.layoutSizingHorizontal = 'FIXED';  // 3. zablokuj szerokość (inaczej wraca do HUG)
+```
+
+### Hierarchia — brak sierot
+
+Każdy nowo stworzony node musi być dzieckiem właściwego parenta. Przed zakończeniem skryptu sprawdź: żaden nowy node nie leży bezpośrednio na `figma.currentPage` — wszystko idzie do target frame/section.
+
+```javascript
+// Anti-pattern — sierota na canvasie:
+const orphan = figma.createFrame(); // ← jeszcze nie ma parenta!
+// Poprawnie — od razu append:
+const f = figma.createFrame();
+f.name = 'Content Row';
+parentFrame.appendChild(f); // ← natychmiast po stworzeniu
+```
+
+### Separator / divider
+
+Separator = frame `h=1` z `fillStyleId` (paint style) lub stroke na rodzicu.
+NIE: `createRectangle()` bez nazwy i stylu, NIE: hardcoded kolor `{ r: 0.9, g: 0.9, b: 0.9 }`.
+
+```javascript
+const divider = figma.createFrame();
+divider.name = 'Divider';
+divider.resize(parentWidth, 1);
+await divider.setFillStyleIdAsync(outlineStyleId); // binduj paint style, nie hex
+```
+
+---
+
+## Spacing — odkryj system, nie zgaduj
+
+### Pre-flight: 3 kroki przed użyciem jakiegokolwiek spacing
+
+Zawsze wykonuj w tej kolejności. Zatrzymaj się na kroku który daje wynik.
+
+**Krok A: Sprawdź czy istnieją spacing variables (FLOAT)**
+
+```javascript
+const vars = await figma.variables.getLocalVariablesAsync();
+const spacingVars = vars.filter(v => v.resolvedType === 'FLOAT');
+return { count: spacingVars.length, sample: spacingVars.slice(0, 20).map(v => ({ name: v.name, id: v.id })) };
+// Jeśli count > 0 → ZAWSZE używaj variables (patrz sekcja "Bindowanie spacing variables")
+// Jeśli count = 0 → przejdź do Kroku B
+```
+
+**Krok B: Odczytaj spacing z istniejących ekranów**
+
+```javascript
+const samples = [];
+function sampleSpacing(n, depth = 0) {
+  if (depth > 2) return;
+  if (n.layoutMode && n.layoutMode !== 'NONE' && (n.itemSpacing > 0 || n.paddingTop > 0 || n.paddingLeft > 0)) {
+    samples.push({ name: n.name, gap: n.itemSpacing, pt: n.paddingTop, pb: n.paddingBottom, pl: n.paddingLeft, pr: n.paddingRight });
+  }
+  n.children?.forEach(c => sampleSpacing(c, depth + 1));
+}
+await figma.loadAllPagesAsync();
+const refPage = figma.root.children.find(p => !p.name.startsWith('---') && p.children.length > 0);
+await figma.setCurrentPageAsync(refPage);
+refPage.children.slice(0, 3).forEach(f => sampleSpacing(f));
+return samples.slice(0, 20);
+// Wynik: lista używanych wartości → użyj ich jako punktu odniesienia
+```
+
+**Krok C: Skopiuj spacing z podobnego istniejącego komponentu**
+
+```javascript
+// Znajdź komponent o podobnej roli (Card, Row, Panel, List)
+const ref = figma.currentPage.findOne(n =>
+  n.type === 'FRAME' && n.layoutMode !== 'NONE' &&
+  (n.name.includes('Card') || n.name.includes('Row') || n.name.includes('Panel'))
+);
+return { gap: ref?.itemSpacing, pt: ref?.paddingTop, pb: ref?.paddingBottom, pl: ref?.paddingLeft, pr: ref?.paddingRight };
+// Kopiuj wartości 1:1 — spójność ważniejsza niż "prawidłowe" wartości abstrakcyjne
+```
+
+### Bindowanie spacing variables (gdy Krok A zwrócił wyniki)
+
+```javascript
+const vars = await figma.variables.getLocalVariablesAsync();
+const spacingMap = {};
+vars.filter(v => v.resolvedType === 'FLOAT').forEach(v => { spacingMap[v.name] = v; });
+
+// Przykład nazw — dostosuj do konwencji pliku (spacing/md, gap-md, space-16 itp.)
+frame.setBoundVariable('itemSpacing', spacingMap['spacing/md']);
+frame.setBoundVariable('paddingTop',    spacingMap['spacing/sm']);
+frame.setBoundVariable('paddingBottom', spacingMap['spacing/sm']);
+frame.setBoundVariable('paddingLeft',   spacingMap['spacing/md']);
+frame.setBoundVariable('paddingRight',  spacingMap['spacing/md']);
+
+// Fallback gdy dana variable nie istnieje:
+if (!spacingMap['spacing/md']) frame.itemSpacing = 16;
+```
+
+Dostępne właściwości do bindowania: `itemSpacing`, `paddingTop`, `paddingBottom`, `paddingLeft`, `paddingRight`, `width`, `height`, `cornerRadius`, `topLeftRadius` itd.
+
+> **Reguła spójności:** jeśli plik używa spacing variables — **wszystkie** spacing muszą przez nie przechodzić. Nigdy nie mieszaj variables z hardcoded px dla tej samej klasy wartości (np. nie `paddingTop = spacingVar` i `paddingBottom = 12`). Mieszanie psuje refactoring tokenów.
+
+### Fallback scale (gdy Kroki A–C nie dały wyników)
+
+Stosuj wyłącznie gdy nie masz żadnego punktu odniesienia z pliku. Wszystkie wartości to wielokrotności 4px.
+
+| Kontekst                        | gap    | paddingH | paddingV |
+|---------------------------------|--------|----------|----------|
+| Ikon / tekst obok siebie        | 4–6    | —        | —        |
+| Chip / badge / pill             | 4–6    | 8–10     | 3–5      |
+| Row w liście / wiersz tabeli    | 8      | 0        | 8–10     |
+| Wewnątrz karty / panelu         | 12     | 16       | 12–16    |
+| Między sekcjami w karcie        | 12     | —        | —        |
+| Content area (główna zawartość) | 24     | 24       | 24       |
+| Między kartami na stronie       | 16–24  | —        | —        |
+| Kolumny layoutu (top-level)     | 32     | —        | —        |
+
+---
+
 ## Bindowanie zmiennych kolorów
 
 Gdy plik ma design tokens, **zawsze** binduj zamiast hardcoded wartości:
@@ -153,7 +327,33 @@ node.strokes = [figma.variables.setBoundVariableForPaint(
    a. Importuj komponent → createInstance() → append do frame
    b. Pozycjonuj (x=0, y=poprzednia_sekcja_y + wysokość)
    c. figma_capture_screenshot → walidacja wizualna
-6. Finalna walidacja całego ekranu
+6. Audit kolorów (przed finalną walidacją)
+7. Finalna walidacja całego ekranu
+```
+
+### Audit kolorów — uruchom po zbudowaniu każdej sekcji
+
+Cel: zero hardcoded fills/strokes na węzłach niebędących instancjami.
+
+```javascript
+function auditColors(sectionNode) {
+  const issues = [];
+  function check(n) {
+    if (n.type === 'INSTANCE') return; // instancje zarządzają własnymi stylami
+    // Hardcoded fill (SOLID bez powiązanego stylu)
+    if (n.fills?.some(f => f.type === 'SOLID') && !n.fillStyleId)
+      issues.push({ id: n.id, name: n.name, issue: 'hardcoded fill' });
+    // Hardcoded stroke
+    if (n.strokes?.some(s => s.type === 'SOLID') && !n.strokeStyleId)
+      issues.push({ id: n.id, name: n.name, issue: 'hardcoded stroke' });
+    if (n.children) for (const child of n.children) check(child);
+  }
+  check(sectionNode);
+  return { ok: issues.length === 0, issues };
+  // Cel: { ok: true, issues: [] }
+  // Każdy wpis w issues → podepnij paint style zamiast hardcoded wartości
+}
+return auditColors(figma.currentPage.findOne(n => n.id === 'TARGET_SECTION_ID'));
 ```
 
 ### Nowa strona — szablon
@@ -206,10 +406,17 @@ return { instanceId: inst.id, newY: currentY };
 | Błąd | Fix |
 |------|-----|
 | Ręczne rect+text zamiast instancji | Zawsze przejdź przez decision tree najpierw |
-| Hardcoded `{ r: 0.12, g: 0.17, b: 0.30 }` | `setBoundVariableForPaint` z tokenem |
+| Hardcoded `{ r: 0.12, g: 0.17, b: 0.30 }` | `setFillStyleIdAsync(styleId)` lub `setBoundVariableForPaint` z tokenem |
 | Tylko navbar+footer jako instancje, reszta ręcznie | KAŻDY element to instancja |
 | Pominięcie auditu istniejących stron | `getMainComponentAsync` na podobnej stronie |
-| Import lokalnego komponentu przez key | Lokalne komponenty: `getNodeByIdAsync(nodeId)` |
+| Import lokalnego (nieopublikowanego) komponentu przez key | Lokalne: `getNodeByIdAsync(nodeId).createInstance()` — `importComponentByKeyAsync` tylko dla opublikowanych |
+| Text property ustawiona, brak efektu wizualnego | Diagnozuj: porównaj `componentProperties` vs `findAll(TEXT).characters`; fallback: `detachInstance()` + direct edit |
+| Frame 100px zamiast huggowania zawartości | `layoutSizingVertical` domyślnie FIXED — po appendChild: `child.layoutSizingVertical = 'HUG'` |
+| Frame wraca do HUG po `resize()` | Zła kolejność: (1) `layoutMode`, (2) `resize()`, (3) `layoutSizingHorizontal = 'FIXED'` |
+| Warstwy z domyślnymi nazwami Frame/Group | `node.name = 'descriptive-name'` przy każdym `createFrame()` |
+| Frame bez `layoutMode` (dzieci w losowych pozycjach) | Każdy frame = świadoma decyzja: VERTICAL / HORIZONTAL / NONE z uzasadnieniem |
+| Sieroty na canvasie | `parentFrame.appendChild(node)` natychmiast po stworzeniu |
+| Zakładanie "Inter" jako font family | Krok 0 pre-flight: `findOne(TEXT).fontName.family` |
 | Jeden wielki `figma_execute` na cały ekran | Dziel na sekcje, screenshot po każdej |
 | Zła szerokość frame'a (np. 1440 vs 1563) | Sprawdź `frame.width` na istniejącej stronie |
 | Text w instancji przez direct edit | `setProperties({ 'Label#123': 'Tekst' })` |
