@@ -1,0 +1,13 @@
+{
+  "name": "figma-design-toolkit",
+  "version": "1.0.0",
+  "description": "Figma design workflow skills: component-first methodology, Plugin API via Desktop Bridge, and JSX CLI. Works with any Figma design system.",
+  "author": {
+    "name": "pkozlowski-ui",
+    "email": "piotr.kozlowski@sunscrapers.com",
+    "url": "https://github.com/pkozlowski-ui"
+  },
+  "repository": "https://github.com/pkozlowski-ui/skills",
+  "license": "MIT",
+  "keywords": ["figma", "design-system", "workflow", "component-first", "design-tokens"]
+}
