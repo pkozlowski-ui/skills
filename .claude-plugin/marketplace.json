@@ -1,10 +1,16 @@
 {
   "name": "pkozlowski-ui-marketplace",
+  "owner": {
+    "name": "pkozlowski-ui"
+  },
   "plugins": [
     {
       "name": "figma-design-toolkit",
       "description": "Figma design workflow skills: component-first methodology, Plugin API via Desktop Bridge, and JSX CLI. Works with any Figma design system.",
-      "source": "github:pkozlowski-ui/skills"
+      "source": {
+        "source": "github",
+        "repo": "pkozlowski-ui/skills"
+      }
     }
   ]
 }
