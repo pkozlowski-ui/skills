@@ -260,10 +260,22 @@ return {
 
 ## Relacja z innymi skillami
 
+### Desktop Bridge path (preferowany — szybszy, lokalny)
 | Skill | Rola |
 |-------|------|
-| `figma-design-workflow` (ten) | **Metodologia** — decision tree, pre-flight, wzorce kodu |
-| `figma-console` | **Mechanika** — jak używać figma_execute, error recovery, placement |
-| `figma-cli` | **Alternatywne narzędzie** — JSX render, shadcn tokens |
+| `figma-design-toolkit:figma-design-workflow` (ten) | **Metodologia** — decision tree, pre-flight, wzorce kodu |
+| `figma-design-toolkit:figma-console` | **Mechanika Desktop** — figma_execute, error recovery, placement |
+| `figma-design-toolkit:figma-cli` | **CLI** — JSX render, shadcn tokens, szybszy niż MCP |
 
-Załaduj oba gdy projektujesz ekrany: `/figma-design-workflow` + `/figma-console`.
+Załaduj oba gdy projektujesz ekrany: `/figma-design-toolkit:figma-design-workflow` + `/figma-design-toolkit:figma-console`
+
+### Cloud path (fallback — gdy Desktop Bridge niedostępny)
+| Skill | Rola |
+|-------|------|
+| `figma:figma-use` | Plugin API prerequisite dla cloud write ops |
+| `figma:figma-generate-design` | Kod/opis → ekran Figma (cloud) |
+| `figma:figma-generate-library` | Design system z kodu (cloud) |
+| `figma:figma-implement-design` | Figma design → kod produkcyjny |
+
+> Ten skill (`figma-design-workflow`) jest niezależny od ścieżki — metodologia decision tree
+> i pre-flight audit stosują się zarówno do Desktop Bridge jak i Cloud path.
