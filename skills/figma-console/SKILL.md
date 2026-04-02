@@ -5,51 +5,51 @@ description: Prerequisite for figma-console MCP tools (figma_execute, figma_capt
 
 # figma-console — Desktop Bridge MCP
 
-Steruje Figma Desktop przez WebSocket (Desktop Bridge plugin). Wymaga otwartej Figmy z działającym pluginem.
+Controls Figma Desktop via WebSocket (Desktop Bridge plugin). Requires Figma to be open with the plugin running.
 
 ---
 
-## Kiedy figma-console vs figma-cli vs use_figma
+## When figma-console vs figma-cli vs use_figma
 
-| Zadanie | Narzędzie |
+| Task | Tool |
 |---------|-----------|
-| JSX render, shadcn tokens, UI bloki | **figma-cli** |
-| Kompleksowy Plugin API, warianty, variable binding | **figma-console** (`figma_execute`) |
-| Odczyt design context, screenshot do kodu | `mcp__figma-desktop__` lub `mcp__figma__` |
-| Fallback gdy desktop niedostępny | `use_figma` (claude.ai Figma) |
+| JSX render, shadcn tokens, UI blocks | **figma-cli** |
+| Complex Plugin API, variants, variable binding | **figma-console** (`figma_execute`) |
+| Read design context, screenshot for code | `mcp__figma-desktop__` or `mcp__figma__` |
+| Fallback when desktop unavailable | `use_figma` (claude.ai Figma) |
 
 ---
 
-## Component-first — zasada nadrzędna dla design tasks
+## Component-first — primary rule for design tasks
 
-**ZANIM zbudujesz jakikolwiek element UI**, przejdź przez ten decision tree:
+**BEFORE building any UI element**, go through this decision tree:
 
 ```
-Czy istnieje komponent w pliku który PASUJE?
-  → TAK: importComponentByKeyAsync(key) + createInstance()
+Does a component exist in the file that FITS this element?
+  → YES: importComponentByKeyAsync(key) + createInstance()
 
-Czy istnieje komponent który PRAWIE pasuje (inny kontekst, zbliżony wygląd)?
-  → TAK: createInstance() + setProperties() dla variant props
-         (jeśli tekst nie jest property → zaakceptuj fixed content lub wybierz inny wariant)
+Does a component exist that ALMOST fits (different context, similar look)?
+  → YES: createInstance() + setProperties() for variant props
+         (if text is not a property → accept fixed content or pick another variant)
 
-Żaden komponent nie pasuje?
-  → Buduj z atomów, ALE wyłącznie z design tokenów:
-     - kolory: setBoundVariableForPaint (NIE hardcoded RGB)
-     - typografia: family/size/weight zgodne z systemem
-     - spacing: wielokrotności 4px lub 8px
-     - radius: wartości z biblioteką (6/8/12/16px)
+No component fits?
+  → Build from atoms, BUT only with design tokens:
+     - colors: setBoundVariableForPaint (NOT hardcoded RGB)
+     - typography: family/size/weight consistent with the system
+     - spacing: multiples of 4px or 8px
+     - radius: values from the library (6/8/12/16px)
 ```
 
-> Reguła: każdy element UI to instancja komponentu — przyciski, inputy, karty, nawigacja, WSZYSTKO.
-> Budowanie z `createRectangle()` + `createText()` omija cały design system.
+> Rule: every UI element is a component instance — buttons, inputs, cards, navigation, EVERYTHING.
+> Building with `createRectangle()` + `createText()` bypasses the entire design system.
 
-### Krok 0 (przed każdym zadaniem designu): audit istniejących stron
+### Step 0 (before every design task): audit existing pages
 
-Zanim zaczniesz budować, sprawdź co używają istniejące podobne strony w pliku — to gotowy "przepis":
+Before building, check what similar existing pages in the file use — that's your ready-made "recipe":
 
 ```javascript
 await figma.loadAllPagesAsync();
-const page = figma.root.children.find(p => p.name.includes('Cart')); // dostosuj nazwę
+const page = figma.root.children.find(p => p.name.includes('Cart')); // adjust name
 await figma.setCurrentPageAsync(page);
 const frame = page.children[0];
 const results = [];
@@ -58,128 +58,128 @@ for (const inst of frame.children.filter(n => n.type === 'INSTANCE')) {
   results.push({ name: inst.name, key: mc?.key, variant: mc?.name });
 }
 return results;
-// → lista komponentów z kluczami gotowa do użycia
+// → list of components with keys, ready to use
 ```
 
-### Bindowanie zmiennych kolorów (nie hardcoduj RGB)
+### Binding color variables (don't hardcode RGB)
 
-Gdy plik ma design tokens (zmienne kolorów), ZAWSZE binduj:
+When the file has design tokens (color variables), ALWAYS bind them:
 
 ```javascript
-// Pobierz zmienną po ID (ID stabilne — nie zmienia się między sesjami)
+// Get variable by ID (ID is stable — doesn't change between sessions)
 const v = await figma.variables.getVariableByIdAsync('VariableID:...');
 const paint = figma.variables.setBoundVariableForPaint(
   { type: 'SOLID', color: { r: 0, g: 0, b: 0 } }, 'color', v
 );
 node.fills = [paint];
 
-// Lub pobierz wszystkie zmienne i znajdź po nazwie:
+// Or get all variables and find by name:
 const vars = await figma.variables.getLocalVariablesAsync();
 const colorMap = {};
 vars.filter(v => v.resolvedType === 'COLOR').forEach(v => { colorMap[v.name] = v; });
-// colorMap['colors/background/bg-brand'], colorMap['colors/text/text-heading'] itp.
+// colorMap['colors/background/bg-brand'], colorMap['colors/text/text-heading'] etc.
 ```
 
-### Screenshot wariantu przed użyciem
+### Screenshot variant before using
 
-Przed `createInstance()` zrób screenshot komponentu żeby potwierdzić że to właściwy wariant:
+Before `createInstance()`, screenshot the component to confirm it's the right variant:
 ```
 figma_capture_screenshot({ nodeId: 'COMPONENT_NODE_ID' })
 ```
 
 ---
 
-## Pre-flight checklist (każda sesja)
+## Pre-flight checklist (each session)
 
 ```
-[ ] figma_get_status — sprawdź połączenie
-[ ] figma_list_open_files — który plik jest aktywny?
-[ ] figma_search_components — odśwież node IDs (stale między sesjami!)
-[ ] figma_capture_screenshot — zrób screenshot strony przed zmianami
-[ ] Znajdź wolne miejsce, nie nakładaj na istniejącą zawartość
+[ ] figma_get_status — check connection
+[ ] figma_list_open_files — which file is active?
+[ ] figma_search_components — refresh node IDs (stale between sessions!)
+[ ] figma_capture_screenshot — screenshot the page before making changes
+[ ] Find free space, don't overlap existing content
 ```
 
-**Node IDs są stale między rozmowami** — nigdy nie używaj ID z poprzedniej sesji bez re-searchu.
+**Node IDs are stale between conversations** — never use IDs from a previous session without re-searching.
 
 ---
 
-## figma_execute — krytyczne zasady
+## figma_execute — critical rules
 
-Wiele zasad jest tych samych co w `use_figma`. Poniżej te, które są inne lub warte podkreślenia.
+Many rules are the same as in `use_figma`. Below are those that differ or are worth highlighting.
 
-### 1. Kod JS — format
+### 1. JS code — format
 
 ```javascript
-// DOBRZE — czysty JS z top-level await i return
+// GOOD — plain JS with top-level await and return
 const frame = figma.createFrame();
 frame.resize(200, 200);
 return { id: frame.id, name: frame.name };
 
-// ŹLE — nie owijaj w async IIFE (jest auto-wrapped)
+// BAD — don't wrap in async IIFE (it's auto-wrapped)
 (async () => { ... })()
 ```
 
-### 2. Return jest jedynym kanałem wyjścia
+### 2. Return is the only output channel
 
-- `console.log()` → niewidoczne, nie używaj
-- `figma.notify()` → throws "not implemented", nie używaj
-- Zawsze `return` z danymi: `{ createdNodeIds: [...], status: "ok" }`
+- `console.log()` → invisible, don't use
+- `figma.notify()` → throws "not implemented", don't use
+- Always `return` with data: `{ createdNodeIds: [...], status: "ok" }`
 
-### 3. Instances — tekst musi przez figma_set_instance_properties
+### 3. Instances — text must go through figma_set_instance_properties
 
 ```javascript
-// ŹLE — FAILS SILENTLY (brak błędu, ale tekst się nie zmienia!)
+// BAD — FAILS SILENTLY (no error, but text doesn't change!)
 const inst = figma.createInstance(component);
-inst.findOne(n => n.type === 'TEXT').characters = 'Nowy tekst';
+inst.findOne(n => n.type === 'TEXT').characters = 'New text';
 
-// DOBRZE — przez właściwości instancji
-// Najpierw sprawdź dostępne właściwości:
+// GOOD — via instance properties
+// First check available properties:
 return Object.keys(instance.componentProperties);
-// Potem ustaw:
-instance.setProperties({ 'Label#2:0': 'Nowy tekst' });
+// Then set:
+instance.setProperties({ 'Label#2:0': 'New text' });
 ```
 
-Lub użyj narzędzia `figma_set_instance_properties` bezpośrednio.
+Or use the `figma_set_instance_properties` tool directly.
 
-### 4. Sprawdzaj resultAnalysis.warning
+### 4. Check resultAnalysis.warning
 
-figma_execute zwraca `resultAnalysis` — zawsze sprawdź `resultAnalysis.warning`:
-- Empty arrays → operacja może być cicha porażka
-- Null returns → node nie istnieje lub błędne ID
+figma_execute returns `resultAnalysis` — always check `resultAnalysis.warning`:
+- Empty arrays → operation may be a silent failure
+- Null returns → node doesn't exist or wrong ID
 
-### 5. Placement — zawsze w Section/Frame, nigdy na pustym canvasie
+### 5. Placement — always inside Section/Frame, never on blank canvas
 
 ```javascript
-// DOBRZE — znajdź lub stwórz Section
+// GOOD — find or create a Section
 let section = figma.currentPage.findOne(n => n.type === 'SECTION' && n.name === 'Components');
 if (!section) {
   section = figma.createSection();
   section.name = 'Components';
-  // Pozycjonuj poniżej istniejącej zawartości
+  // Position below existing content
   const maxY = Math.max(0, ...figma.currentPage.children.map(n => n.y + n.height)) + 100;
   section.y = maxY;
 }
-// Twórz wewnątrz section
+// Create inside the section
 const frame = figma.createFrame();
 section.appendChild(frame);
 ```
 
-### 6. Cleanup przy błędzie/retry
+### 6. Cleanup on error/retry
 
-Jeśli skrypt się wysypał i zostawił częściowe artefakty — **usuń je przed retry**:
+If the script failed and left partial artifacts — **remove them before retrying**:
 
 ```javascript
-// Znajdź i usuń puste/sieroty frames
+// Find and remove empty/orphaned frames
 const orphans = figma.currentPage.findAll(n => n.name === 'Temp' || n.children?.length === 0);
 orphans.forEach(n => n.remove());
 ```
 
-Nigdy nie buduj na zepsutej podstawie.
+Never build on a broken foundation.
 
-### 7. Strony — nie duplikuj
+### 7. Pages — don't duplicate
 
 ```javascript
-// ZAWSZE sprawdź czy strona istnieje przed stworzeniem
+// ALWAYS check if page exists before creating
 await figma.loadAllPagesAsync();
 const existing = figma.root.children.find(p => p.name === 'Design System');
 if (existing) {
@@ -191,215 +191,152 @@ if (existing) {
 }
 ```
 
-### 8. Kolory — zakres 0–1 (nie 0–255)
+### 8. Colors — range 0–1 (not 0–255)
 
 ```javascript
-{ r: 1, g: 0, b: 0 }      // czerwony ✓
-{ r: 255, g: 0, b: 0 }    // ŹLE ✗
+{ r: 1, g: 0, b: 0 }      // red ✓
+{ r: 255, g: 0, b: 0 }    // BAD ✗
 ```
 
-### 9. FILL po appendChild
+### 9. FILL after appendChild
 
 ```javascript
 parent.appendChild(child);
-child.layoutSizingHorizontal = 'FILL'; // AFTER append, nie przed
+child.layoutSizingHorizontal = 'FILL'; // AFTER append, not before
 ```
 
-### 10. Font PRZED operacją na tekście — sprawdź font family z pliku
+### 10. Font BEFORE text operations
 
 ```javascript
-// NIE zakładaj 'Inter' — sprawdź faktyczny font z istniejącego węzła tekstowego
-const sample = figma.currentPage.findOne(n => n.type === 'TEXT');
-const fontFamily = sample?.fontName?.family ?? 'Inter';
-await figma.loadFontAsync({ family: fontFamily, style: 'Regular' });
-await figma.loadFontAsync({ family: fontFamily, style: 'SemiBold' });
-await figma.loadFontAsync({ family: fontFamily, style: 'Medium' });
+await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
 const text = figma.createText();
-text.characters = 'Hello'; // dopiero po loadFontAsync
-```
-
-### 11. Lokalny vs opublikowany komponent
-
-```javascript
-// OPUBLIKOWANY (w library) → importComponentByKeyAsync
-const comp = await figma.importComponentByKeyAsync('abc123key');
-
-// LOKALNY (nieopublikowany) → getNodeByIdAsync + createInstance
-// nodeId pochodzi z figma_search_components → results[].nodeId
-const comp = await figma.getNodeByIdAsync('337:15141');
-const inst = comp.createInstance();
-```
-
-> `importComponentByKeyAsync` na lokalnym komponencie rzuca `"cannot import unpublished"`. Zawsze sprawdź czy komponent jest opublikowany — jeśli nie, użyj `getNodeByIdAsync`.
-
-### 12. setProperties() — weryfikuj efekt wizualny, nie tylko wartość property
-
-```javascript
-// setProperties zmienia wartość w componentProperties, ale może NIE zmienić
-// węzła tekstowego jeśli text property jest "ghost" (niezwiązana z TextNode)
-
-inst.setProperties({ 'Label#xxx': 'Nowy tekst' });
-
-// Weryfikuj: sprawdź faktyczne węzły tekstowe
-const actualText = inst.findAll(n => n.type === 'TEXT').map(t => t.characters);
-// Jeśli actualText nie zawiera 'Nowy tekst' → property jest ghost → użyj fallback
-
-// FALLBACK: detach + direct edit (zawsze działa)
-const detached = inst.detachInstance();
-const t = detached.findOne(n => n.type === 'TEXT' && n.visible);
-await figma.loadFontAsync(t.fontName);
-t.characters = 'Nowy tekst';
-// Uwaga: detach traci link do komponentu — akceptowalne dla custom labels na konkretnym ekranie
-```
-
-### 13. layoutSizingVertical — FIXED domyślnie, HUG musi być jawne
-
-```javascript
-// Nowe frames mają layoutSizingVertical = 'FIXED' domyślnie
-// Auto-layout NIE przełącza na HUG automatycznie po dodaniu tekstu
-// HUG musi być ustawione JAWNIE i ZAWSZE PO appendChild()
-
-parent.appendChild(rowFrame);
-rowFrame.layoutSizingHorizontal = 'FILL';  // zajmij całą szerokość parenta
-rowFrame.layoutSizingVertical = 'HUG';     // skurczy się do wysokości zawartości
-// ✗ NIE ustawiaj HUG przed appendChild — nie zadziała
-```
-
-### 14. Kolejność: layoutMode → resize() → layoutSizingHorizontal
-
-```javascript
-// Ustawienie layoutMode zmienia sizing na HUG — resize() przywraca FIXED
-// Wymagana kolejność:
-frame.layoutMode = 'HORIZONTAL';          // (1) najpierw layout mode
-frame.resize(768, frame.height);          // (2) potem resize do żądanego wymiaru
-frame.layoutSizingHorizontal = 'FIXED';   // (3) na końcu zablokuj sizing
-// ✗ Odwrotna kolejność → frame wraca do HUG szerokości tekstu
+text.characters = 'Hello'; // only after loadFontAsync
 ```
 
 ---
 
-## Visual Validation Loop (obowiązkowy)
+## Visual Validation Loop (required)
 
-Po każdej operacji tworzącej/modyfikującej elementy wizualne:
+After every operation that creates or modifies visual elements:
 
 ```
-1. figma_capture_screenshot(nodeId: "NODE_ID")   ← preferuj nad figma_take_screenshot
-2. Sprawdź: alignment, spacing, proporcje, visual balance
-3. Iteruj jeśli coś nie gra (max 3 razy)
-4. Ostateczne figma_capture_screenshot dla potwierdzenia
+1. figma_capture_screenshot(nodeId: "NODE_ID")   ← prefer over figma_take_screenshot
+2. Check: alignment, spacing, proportions, visual balance
+3. Iterate if something looks off (max 3 times)
+4. Final figma_capture_screenshot for confirmation
 ```
 
 **figma_capture_screenshot vs figma_take_screenshot:**
-- `figma_capture_screenshot` — przez plugin runtime, widzi zmiany **natychmiast**, preferowany do walidacji
-- `figma_take_screenshot` — przez REST API (chmura), może nie mieć najnowszego stanu, dobry do szerszych widoków strony
+- `figma_capture_screenshot` — via plugin runtime, sees changes **immediately**, preferred for validation
+- `figma_take_screenshot` — via REST API (cloud), may not reflect latest state, good for broader page views
 
 ---
 
 ## Session Management
 
-### Sprawdź połączenie
+### Check connection
 ```
 figma_get_status
 ```
-Jeśli status nie OK → `figma_reconnect`
+If status not OK → `figma_reconnect`
 
-### Wiele plików
+### Multiple files
 ```
-figma_list_open_files    → które pliki mają Desktop Bridge plugin
-figma_navigate           → przełącz aktywny plik
+figma_list_open_files    → which files have Desktop Bridge plugin
+figma_navigate           → switch active file
 ```
 
-### Odkryj strukturę pliku
+### Discover file structure
 ```javascript
-// Zacznij od verbosity='summary', depth=1 — nie 'full' (pochłania tokeny!)
+// Start with verbosity='summary', depth=1 — not 'full' (consumes tokens!)
 figma_get_file_data({ verbosity: 'summary', depth: 1 })
 ```
 
-### Odkryj komponenty (na początku sesji)
+### Discover components (at session start)
 ```
 figma_search_components({ query: 'Button', limit: 10 })
 figma_search_components({ category: 'Card', limit: 10 })
 ```
 
-### Sprawdź co użytkownik zaznaczył
+### Check user selection
 ```
 figma_get_selection()
-figma_get_selection({ verbose: true })  // z fills/strokes/styles
+figma_get_selection({ verbose: true })  // with fills/strokes/styles
 ```
 
 ---
 
-## Incremental workflow — jak unikać bugów
+## Incremental workflow — how to avoid bugs
 
-1. **Inspect first** — screenshot + `figma_get_file_data(summary)` zanim cokolwiek stworzysz
-2. **Jedno zadanie per `figma_execute`** — nie buduj całego ekranu w jednym wywołaniu
-3. **Return node IDs z każdego call** — potrzebujesz ich w kolejnych krokach
-4. **Waliduj po każdym kroku** — `figma_capture_screenshot` po tworzeniu komponentów
-5. **Napraw przed kontynuowaniem** — nie buduj na błędnym stanie
+1. **Inspect first** — screenshot + `figma_get_file_data(summary)` before creating anything
+2. **One task per `figma_execute`** — don't build an entire screen in one call
+3. **Return node IDs from every call** — you'll need them in subsequent steps
+4. **Validate after each step** — `figma_capture_screenshot` after creating components
+5. **Fix before continuing** — don't build on a broken state
 
-### Sugerowana kolejność dla złożonych zadań
+### Suggested order for complex tasks
 
 ```
-Krok 1: Inspect — figma_get_file_data + figma_capture_screenshot (co już jest?)
-Krok 2: figma_search_components (jakie komponenty są dostępne?)
-Krok 3: Stwórz Section/parent frame → return { sectionId }
-Krok 4: Stwórz tokeny/zmienne → waliduj figma_capture_screenshot
-Krok 5: Stwórz komponenty (jeden per call) → waliduj
-Krok 6: Złóż layout z instancji → waliduj
-Krok 7: Finalna walidacja całości
+Step 1: Inspect — figma_get_file_data + figma_capture_screenshot (what's already there?)
+Step 2: figma_search_components (what components are available?)
+Step 3: Create Section/parent frame → return { sectionId }
+Step 4: Create tokens/variables → validate figma_capture_screenshot
+Step 5: Create components (one per call) → validate
+Step 6: Compose layout from instances → validate
+Step 7: Final validation of the whole screen
 ```
 
 ---
 
 ## Error Recovery
 
-`figma_execute` jest atomiczne — jeśli skrypt rzuci błąd, żadne zmiany nie są aplikowane.
+`figma_execute` is atomic — if the script throws, no changes are applied.
 
-**Gdy błąd:**
-1. STOP — nie retry natychmiast
-2. Przeczytaj error message dokładnie
-3. Jeśli niejasny — `figma_capture_screenshot` + `figma_get_file_data` żeby sprawdzić stan
-4. Napraw skrypt
-5. Retry (bezpieczne — nic nie zostało zmienione)
+**On error:**
+1. STOP — don't retry immediately
+2. Read the error message carefully
+3. If unclear — `figma_capture_screenshot` + `figma_get_file_data` to check state
+4. Fix the script
+5. Retry (safe — nothing was changed)
 
-**Gdy sukces ale wygląda źle:**
-1. `figma_capture_screenshot(nodeId)` — nie całej strony
-2. Napisz targeted fix script — nie odtwarzaj wszystkiego od zera
+**On success but looks wrong:**
+1. `figma_capture_screenshot(nodeId)` — not the whole page
+2. Write a targeted fix script — don't rebuild everything from scratch
 
-### Typowe błędy i fix
+### Common errors and fixes
 
-| Error | Przyczyna | Fix |
+| Error | Cause | Fix |
 |-------|-----------|-----|
-| "not implemented" | `figma.notify()` | Usuń, użyj `return` |
-| Tekst się nie zmienia, brak błędu | Direct edit instancji | Użyj `setProperties()` lub `figma_set_instance_properties` |
+| "not implemented" | `figma.notify()` | Remove it, use `return` |
+| Text doesn't change, no error | Direct edit on instance | Use `setProperties()` or `figma_set_instance_properties` |
 | `"Setting figma.currentPage is not supported"` | Sync setter | `await figma.setCurrentPageAsync(page)` |
-| Empty array w result | Silent fail — node nie istnieje | Sprawdź ID, sprawdź stronę |
-| FILL przed appendChild | Crash na layoutSizing | Przenieś FILL po appendChild |
-| Font error | Brak loadFontAsync | Dodaj `await figma.loadFontAsync(...)` przed text ops |
+| Empty array in result | Silent fail — node doesn't exist | Check ID, check page |
+| FILL before appendChild | Crash on layoutSizing | Move FILL after appendChild |
+| Font error | Missing loadFontAsync | Add `await figma.loadFontAsync(...)` before text ops |
 
 ---
 
-## Pre-flight checklist (przed figma_execute)
+## Pre-flight checklist (before figma_execute)
 
-- [ ] `return` używane jako output (nie console.log, nie figma.notify)
-- [ ] Kod NIE jest owiniętyw async IIFE
-- [ ] Kolory w zakresie 0–1
-- [ ] `layoutSizingH/V = 'FILL'` ustawiane PO appendChild
-- [ ] `loadFontAsync()` wywołane PRZED text operations
-- [ ] Page switch przez `await figma.setCurrentPageAsync(page)`
-- [ ] Instancje: tekst przez `setProperties()`, nie direct edit
-- [ ] Nowe node'y tworzone wewnątrz Section/Frame (nie na gołym canvasie)
-- [ ] Zwracane node IDs ze wszystkich stworzonych/zmodyfikowanych elementów
-- [ ] Sprawdzona duplikacja stron przed tworzeniem
+- [ ] `return` used as output (not console.log, not figma.notify)
+- [ ] Code is NOT wrapped in async IIFE
+- [ ] Colors in range 0–1
+- [ ] `layoutSizingH/V = 'FILL'` set AFTER appendChild
+- [ ] `loadFontAsync()` called BEFORE text operations
+- [ ] Page switch via `await figma.setCurrentPageAsync(page)`
+- [ ] Instances: text via `setProperties()`, not direct edit
+- [ ] New nodes created inside Section/Frame (not on bare canvas)
+- [ ] Node IDs returned from all created/modified elements
+- [ ] Page duplication checked before creating
 
 ---
 
-## Relacja z figma-use skill
+## Relation to figma-use skill
 
-Wiele zasad Plugin API jest identycznych z `figma-use`. Gdy potrzebujesz szczegółowych wzorców:
-- Komponenty i warianty → `/figma:figma-use` references/component-patterns.md
-- Zmienne i bindowanie → `/figma:figma-use` references/variable-patterns.md
+Many Plugin API rules are identical to `figma-use`. When you need detailed patterns:
+- Components and variants → `/figma:figma-use` references/component-patterns.md
+- Variables and binding → `/figma:figma-use` references/variable-patterns.md
 - Text styles → `/figma:figma-use` references/text-style-patterns.md
-- Pełne gotchas → `/figma:figma-use` references/gotchas.md
+- Full gotchas → `/figma:figma-use` references/gotchas.md
 
-Różnica: tamte skille używają `use_figma`, ten skill używa `figma_execute`. Zasady Plugin API są identyczne.
+Difference: those skills use `use_figma`, this skill uses `figma_execute`. Plugin API rules are identical.
