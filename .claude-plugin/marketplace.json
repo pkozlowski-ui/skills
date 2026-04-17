@@ -7,10 +7,12 @@
     {
       "name": "figma-design-toolkit",
       "description": "Figma design workflow skills: component-first methodology, Plugin API via Desktop Bridge, and JSX CLI. Works with any Figma design system.",
-      "source": {
-        "source": "github",
-        "repo": "pkozlowski-ui/skills"
-      }
+      "source": "./plugins/figma-design-toolkit"
+    },
+    {
+      "name": "workflow-toolkit",
+      "description": "Universal Claude Code workflow skills: project bootstrap, session retro, design system lookup, browser verification.",
+      "source": "./plugins/workflow-toolkit"
     }
   ]
 }
