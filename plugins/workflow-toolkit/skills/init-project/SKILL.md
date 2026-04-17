@@ -17,11 +17,23 @@ Uruchamia się gdy użytkownik mówi (w katalogu nowego projektu):
 - "nowy projekt — przygotuj"
 - "zrób setup dla tego projektu"
 
-## Prerekwizyty
+## Źródło templatu
 
-Template startowy musi istnieć w `~/Documents/claude-project-template/`.
-Jeśli nie istnieje — powiedz użytkownikowi że framework nie jest w pełni wdrożony
-i zaproponuj utworzenie templatu najpierw.
+Template mieszka w tym samym pluginie, w katalogu `template/` obok `skills/`.
+Po zainstalowaniu pluginu Claude Code kopiuje plugin do lokalnego cache. Ścieżka:
+
+```
+~/.claude/plugins/cache/pkozlowski-ui-marketplace/workflow-toolkit/<version>/template/
+```
+
+Żeby znaleźć aktualną wersję, użyj glob:
+
+```bash
+ls -d ~/.claude/plugins/cache/pkozlowski-ui-marketplace/workflow-toolkit/*/template 2>/dev/null | sort -V | tail -1
+```
+
+Jeśli ten katalog nie istnieje — plugin `workflow-toolkit` nie jest zainstalowany.
+Powiadom użytkownika i zaproponuj: `/plugin install workflow-toolkit@pkozlowski-ui-marketplace`.
 
 ## Protokół (5 kroków)
 
@@ -54,13 +66,12 @@ Open-ended, user wpisuje.
 
 Na podstawie odpowiedzi:
 
-1. **Kopiuj strukturę** z `~/Documents/claude-project-template/` do obecnego katalogu:
+1. **Kopiuj strukturę** z cache pluginu do obecnego katalogu:
+   ```bash
+   TEMPLATE_DIR=$(ls -d ~/.claude/plugins/cache/pkozlowski-ui-marketplace/workflow-toolkit/*/template 2>/dev/null | sort -V | tail -1)
+   cp -r "$TEMPLATE_DIR/." ./
    ```
-   CLAUDE.md (jako template do wypełnienia)
-   .claude/settings.json
-   .claude/hooks/ (puste)
-   .agent/skills/ (puste)
-   ```
+   Kopiuje: `CLAUDE.md`, `.claude/settings.json`, `docs/design-system/` szkielet, `memory-bootstrap/`.
 
 2. **Populuj CLAUDE.md** — wypełnij placeholdery na podstawie odpowiedzi:
    - `{{PROJECT_TYPE}}` → "frontend prototype" / "fullstack" / etc.
